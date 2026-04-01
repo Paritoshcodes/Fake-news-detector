@@ -36,8 +36,8 @@ def _show_article_preview(title: str, text: str) -> None:
 
 
 analyze_col, demo_col = st.columns([2, 1])
-analyze_clicked = analyze_col.button("Analyze live URL", type="primary", use_container_width=True)
-demo_clicked = demo_col.button("Run with demo article", use_container_width=True)
+analyze_clicked = analyze_col.button("Analyze live URL", type="primary", width="stretch")
+demo_clicked = demo_col.button("Run with demo article", width="stretch")
 
 if analyze_clicked:
     if url.strip():

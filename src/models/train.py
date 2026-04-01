@@ -23,6 +23,15 @@ LEGACY_DATASET_PATH = ROOT_DIR / "WELFake_Dataset.csv"
 DEFAULT_DATASET_PATH = DATASET_CACHE_DIR / "WELFake_Dataset.csv"
 DEFAULT_DATASET_DRIVE_URL = "https://drive.google.com/file/d/13lcNYSvVfJhC5xl-84k5AcHvNVnKiI1T/view?usp=drive_link"
 DATASET_DRIVE_URL_ENV = "WELFAKE_DATASET_URL"
+
+FULL_PROFILE_MAX_ROWS_ENV = "WELFAKE_FULL_MAX_ROWS"
+TEXT_CHAR_LIMIT_ENV = "WELFAKE_TEXT_CHAR_LIMIT"
+MAX_FEATURES_ENV = "WELFAKE_MAX_FEATURES"
+LOGREG_MAX_ITER_ENV = "WELFAKE_LOGREG_MAX_ITER"
+
+DEFAULT_TEXT_CHAR_LIMIT = 2200
+DEFAULT_MAX_FEATURES = 8000
+DEFAULT_LOGREG_MAX_ITER = 220
 TRAINING_PROFILES = ("quick", "full")
 
 PROFILE_MAX_ROWS = {
@@ -57,6 +66,39 @@ def _validate_profile(profile: str) -> Literal["quick", "full"]:
     if normalized not in TRAINING_PROFILES:
         raise ValueError(f"Unknown training profile: {profile}. Use 'quick' or 'full'.")
     return normalized  # type: ignore[return-value]
+
+
+def _read_positive_int_env(name: str, default: Optional[int]) -> Optional[int]:
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return default
+
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return default
+
+    if parsed <= 0:
+        return default
+    return parsed
+
+
+def _is_streamlit_cloud_runtime() -> bool:
+    if os.getenv("STREAMLIT_SHARING_MODE", "").strip().lower() == "streamlit_app":
+        return True
+    return str(ROOT_DIR).startswith("/mount/src/")
+
+
+def _resolve_profile_max_rows(profile_name: str, max_rows: Optional[int]) -> Optional[int]:
+    if max_rows is not None:
+        return max_rows
+
+    if profile_name == "full":
+        # By default, full profile trains on the complete dataset.
+        # Set WELFAKE_FULL_MAX_ROWS only if an explicit cap is desired.
+        return _read_positive_int_env(FULL_PROFILE_MAX_ROWS_ENV, PROFILE_MAX_ROWS["full"])
+
+    return PROFILE_MAX_ROWS[profile_name]
 
 
 def get_welfake_dataset_source_url() -> str:
@@ -242,8 +284,9 @@ def _normalize_for_training(text: str) -> str:
 
 
 def prepare_text_and_labels(df: pd.DataFrame):
+    text_char_limit = _read_positive_int_env(TEXT_CHAR_LIMIT_ENV, DEFAULT_TEXT_CHAR_LIMIT)
     combined = (df["title"].astype(str) + " " + df["text"].astype(str)).str.strip()
-    combined = combined.str.slice(stop=6000)
+    combined = combined.str.slice(stop=text_char_limit)
     cleaned = combined.apply(_normalize_for_training)
     mask = cleaned.str.len() > 0
     X = cleaned[mask]
@@ -273,7 +316,7 @@ def train_welfake_model(
     vectorizer_output = Path(vectorizer_path) if vectorizer_path else PROFILE_VECTORIZER_PATHS[profile_name]
     metrics_output = Path(metrics_path) if metrics_path else PROFILE_METRICS_PATHS[profile_name]
 
-    resolved_max_rows = PROFILE_MAX_ROWS[profile_name] if max_rows is None else max_rows
+    resolved_max_rows = _resolve_profile_max_rows(profile_name, max_rows)
 
     df = load_welfake_data(dataset)
     raw_rows_available = int(len(df))
@@ -299,8 +342,11 @@ def train_welfake_model(
         stratify=y,
     )
 
+    max_features = _read_positive_int_env(MAX_FEATURES_ENV, DEFAULT_MAX_FEATURES)
+    max_iter = _read_positive_int_env(LOGREG_MAX_ITER_ENV, DEFAULT_LOGREG_MAX_ITER)
+
     vectorizer = TfidfVectorizer(
-        max_features=12000,
+        max_features=max_features,
         ngram_range=(1, 2),
         min_df=3,
         max_df=0.95,
@@ -310,7 +356,7 @@ def train_welfake_model(
     X_train_vec = vectorizer.fit_transform(X_train)
     X_test_vec = vectorizer.transform(X_test)
 
-    model = LogisticRegression(max_iter=280, solver="saga", random_state=random_state)
+    model = LogisticRegression(max_iter=max_iter, solver="saga", random_state=random_state)
     model.fit(X_train_vec, y_train)
 
     y_pred = model.predict(X_test_vec)
@@ -330,11 +376,15 @@ def train_welfake_model(
         "profile": profile_name,
         "dataset_path": str(dataset),
         "dataset_downloaded_for_run": dataset_downloaded,
+        "cloud_runtime": _is_streamlit_cloud_runtime(),
         "raw_rows_available": raw_rows_available,
         "rows_used": int(len(X)),
         "train_rows": int(len(X_train)),
         "test_rows": int(len(X_test)),
         "max_rows_setting": int(resolved_max_rows) if resolved_max_rows else None,
+        "text_char_limit": int(_read_positive_int_env(TEXT_CHAR_LIMIT_ENV, DEFAULT_TEXT_CHAR_LIMIT) or DEFAULT_TEXT_CHAR_LIMIT),
+        "max_features": int(max_features or DEFAULT_MAX_FEATURES),
+        "max_iter": int(max_iter or DEFAULT_LOGREG_MAX_ITER),
     }
 
     model_output.parent.mkdir(parents=True, exist_ok=True)

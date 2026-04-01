@@ -9,9 +9,6 @@ def render_top_nav(active_page: str) -> str:
         ("Model Insights", "insights"),
     ]
 
-    label_to_key = {label: key for label, key in items}
-    key_to_label = {key: label for label, key in items}
-
     normalized_active = str(active_page).strip().lower()
     active_key_aliases = {
         "home": "home",
@@ -22,24 +19,23 @@ def render_top_nav(active_page: str) -> str:
         "model insights": "insights",
         "insights": "insights",
     }
-    initial_key = active_key_aliases.get(normalized_active, "home")
-    initial_label = key_to_label[initial_key]
+    active_key = active_key_aliases.get(normalized_active, "home")
 
-    selector_key = "single_page_top_nav"
-    if selector_key not in st.session_state or st.session_state[selector_key] not in label_to_key:
-        st.session_state[selector_key] = initial_label
+    nav_links = []
+    for label, key in items:
+        active_class = " active" if key == active_key else ""
+        nav_links.append(f'<a class="top-nav-item{active_class}" href="/?tab={key}">{label}</a>')
 
-    left_col, center_col, right_col = st.columns([1.2, 2.6, 1.2])
-    with center_col:
-        selected_label = st.radio(
-            "Navigation",
-            options=[label for label, _ in items],
-            horizontal=True,
-            label_visibility="collapsed",
-            key=selector_key,
-        )
+    st.markdown(
+        f"""
+        <nav class="top-nav" aria-label="Primary Navigation">
+            {"".join(nav_links)}
+        </nav>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    return label_to_key[selected_label]
+    return active_key
 
 
 def render_hero(title: str, subtitle: str, eyebrow: str = "Fake News Radar") -> None:

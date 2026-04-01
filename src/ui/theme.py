@@ -50,6 +50,7 @@ def inject_global_css() -> None:
             .top-nav {
                 display: flex;
                 align-items: center;
+                justify-content: center;
                 gap: 0.5rem;
                 flex-wrap: nowrap;
                 width: fit-content;
@@ -80,7 +81,7 @@ def inject_global_css() -> None:
             }
 
             .top-nav-item.active {
-                background: linear-gradient(130deg, #0f766e, #1d4ed8);
+                background: linear-gradient(130deg, #2563eb, #1d4ed8);
                 color: #ffffff;
                 border-color: transparent;
                 box-shadow: 0 8px 16px rgba(29, 78, 216, 0.24);

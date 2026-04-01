@@ -30,13 +30,13 @@ st.caption(f"Active backend: {get_prediction_backend()}")
 
 sample_col_1, sample_col_2, sample_col_3 = st.columns(3)
 with sample_col_1:
-    if st.button("Load credible sample", use_container_width=True):
+    if st.button("Load credible sample", width="stretch"):
         st.session_state.text_analyzer_input = SAMPLE_REAL
 with sample_col_2:
-    if st.button("Load suspicious sample", use_container_width=True):
+    if st.button("Load suspicious sample", width="stretch"):
         st.session_state.text_analyzer_input = SAMPLE_FAKE
 with sample_col_3:
-    if st.button("Clear", use_container_width=True):
+    if st.button("Clear", width="stretch"):
         st.session_state.text_analyzer_input = ""
 
 input_text = st.text_area(
@@ -56,7 +56,7 @@ if input_text.strip():
     m2.metric("Character count", f"{characters}")
     m3.metric("Avg words / sentence", f"{avg_sentence_length:.1f}")
 
-if st.button("Analyze text", type="primary", use_container_width=True):
+if st.button("Analyze text", type="primary", width="stretch"):
     if input_text.strip():
         with st.spinner("Evaluating language signals..."):
             prediction, confidence = predict_text(input_text)

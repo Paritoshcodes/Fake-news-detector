@@ -182,13 +182,13 @@ def render_text_section() -> None:
 
     sample_col_1, sample_col_2, sample_col_3 = st.columns(3)
     with sample_col_1:
-        if st.button("Load credible sample", use_container_width=True):
+        if st.button("Load credible sample", width="stretch"):
             st.session_state.text_analyzer_input = SAMPLE_REAL
     with sample_col_2:
-        if st.button("Load suspicious sample", use_container_width=True):
+        if st.button("Load suspicious sample", width="stretch"):
             st.session_state.text_analyzer_input = SAMPLE_FAKE
     with sample_col_3:
-        if st.button("Clear", use_container_width=True):
+        if st.button("Clear", width="stretch"):
             st.session_state.text_analyzer_input = ""
 
     input_text = st.text_area(
@@ -209,7 +209,7 @@ def render_text_section() -> None:
         m2.metric("Character count", f"{characters}")
         m3.metric("Avg words / sentence", f"{avg_sentence_length:.1f}")
 
-    if st.button("Analyze text", type="primary", use_container_width=True):
+    if st.button("Analyze text", type="primary", width="stretch"):
         if input_text.strip():
             with st.spinner("Evaluating language signals..."):
                 prediction, confidence = predict_text(input_text)
@@ -246,8 +246,8 @@ def render_url_section() -> None:
     url = st.text_input("Article URL", placeholder="https://example.com/article")
 
     analyze_col, demo_col = st.columns([2, 1])
-    analyze_clicked = analyze_col.button("Analyze live URL", type="primary", use_container_width=True)
-    demo_clicked = demo_col.button("Run with demo article", use_container_width=True)
+    analyze_clicked = analyze_col.button("Analyze live URL", type="primary", width="stretch")
+    demo_clicked = demo_col.button("Run with demo article", width="stretch")
 
     if analyze_clicked:
         if url.strip():
@@ -314,7 +314,7 @@ def render_insights_section() -> None:
 
     train_col, path_col = st.columns([1, 2])
     with train_col:
-        train_clicked = st.button("Train on WELFake", type="primary", use_container_width=True)
+        train_clicked = st.button("Train on WELFake", type="primary", width="stretch")
     with path_col:
         st.code(str(dataset_status["local_path"]), language="text")
         st.caption(
@@ -379,7 +379,7 @@ def render_insights_section() -> None:
         ax.set_yticks([0, 1], labels=["Actual Real", "Actual Fake"])
         ax.set_title("Prediction Outcomes")
         fig.colorbar(heatmap, ax=ax, fraction=0.046, pad=0.04)
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
 
     with chart_col_2:
         st.markdown("### ROC Curve")
@@ -392,7 +392,7 @@ def render_insights_section() -> None:
         ax2.set_ylabel("True Positive Rate")
         ax2.set_title("Classifier Separability")
         ax2.legend(loc="lower right")
-        st.pyplot(fig2, use_container_width=True)
+        st.pyplot(fig2, width="stretch")
 
     st.markdown("### Feature Signal Contribution")
     contribution = pd.DataFrame(
@@ -415,7 +415,7 @@ def render_insights_section() -> None:
     bar_ax.grid(axis="x", linestyle="--", alpha=0.3)
     for index, value in enumerate(ordered["Weight"]):
         bar_ax.text(value + 0.006, index, f"{value:.2f}", va="center", fontsize=10, color="#0f172a")
-    st.pyplot(bar_fig, use_container_width=True)
+    st.pyplot(bar_fig, width="stretch")
 
     if metrics_source == "demo":
         render_glass_card(

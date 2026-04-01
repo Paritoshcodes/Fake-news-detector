@@ -104,7 +104,7 @@ def display_model_insights():
 
     train_col, path_col = st.columns([1, 2])
     with train_col:
-        train_clicked = st.button("Train on WELFake", type="primary", use_container_width=True)
+        train_clicked = st.button("Train on WELFake", type="primary", width="stretch")
     with path_col:
         st.code(str(dataset_status["local_path"]), language="text")
         st.caption(
@@ -169,7 +169,7 @@ def display_model_insights():
         ax.set_yticks([0, 1], labels=["Actual Fake", "Actual Real"])
         ax.set_title("Prediction Outcomes")
         fig.colorbar(heatmap, ax=ax, fraction=0.046, pad=0.04)
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
 
     with chart_col_2:
         st.markdown("### ROC Curve")
@@ -182,7 +182,7 @@ def display_model_insights():
         ax2.set_ylabel("True Positive Rate")
         ax2.set_title("Classifier Separability")
         ax2.legend(loc="lower right")
-        st.pyplot(fig2, use_container_width=True)
+        st.pyplot(fig2, width="stretch")
 
     st.markdown("### Feature Signal Contribution")
     contribution = pd.DataFrame(
@@ -205,7 +205,7 @@ def display_model_insights():
     bar_ax.grid(axis="x", linestyle="--", alpha=0.3)
     for index, value in enumerate(ordered["Weight"]):
         bar_ax.text(value + 0.006, index, f"{value:.2f}", va="center", fontsize=10, color="#0f172a")
-    st.pyplot(bar_fig, use_container_width=True)
+    st.pyplot(bar_fig, width="stretch")
 
     if metrics_source == "demo":
         render_glass_card(
