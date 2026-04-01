@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Dict, Literal, Optional
+from urllib.parse import parse_qs, urlparse
 
 import joblib
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
 from sklearn.model_selection import train_test_split
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_DATASET_PATH = ROOT_DIR / "WELFake_Dataset.csv"
 ARTIFACTS_DIR = ROOT_DIR / "artifacts"
+DATASET_CACHE_DIR = ARTIFACTS_DIR / "datasets"
+LEGACY_DATASET_PATH = ROOT_DIR / "WELFake_Dataset.csv"
+DEFAULT_DATASET_PATH = DATASET_CACHE_DIR / "WELFake_Dataset.csv"
+DEFAULT_DATASET_DRIVE_URL = "https://drive.google.com/file/d/13lcNYSvVfJhC5xl-84k5AcHvNVnKiI1T/view?usp=drive_link"
+DATASET_DRIVE_URL_ENV = "WELFAKE_DATASET_URL"
 TRAINING_PROFILES = ("quick", "full")
 
 PROFILE_MAX_ROWS = {
@@ -49,6 +57,169 @@ def _validate_profile(profile: str) -> Literal["quick", "full"]:
     if normalized not in TRAINING_PROFILES:
         raise ValueError(f"Unknown training profile: {profile}. Use 'quick' or 'full'.")
     return normalized  # type: ignore[return-value]
+
+
+def get_welfake_dataset_source_url() -> str:
+    configured = os.getenv(DATASET_DRIVE_URL_ENV, "").strip()
+    return configured or DEFAULT_DATASET_DRIVE_URL
+
+
+def _extract_google_drive_file_id(share_url: str) -> str:
+    normalized = str(share_url).strip()
+    if not normalized:
+        raise ValueError("Google Drive dataset URL is empty.")
+
+    # Common format: /file/d/<FILE_ID>/view
+    match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", normalized)
+    if match:
+        return match.group(1)
+
+    parsed = urlparse(normalized)
+    query_values = parse_qs(parsed.query)
+    query_id = query_values.get("id")
+    if query_id and query_id[0]:
+        return query_id[0]
+
+    raise ValueError(
+        "Could not parse Google Drive file id from dataset URL. "
+        "Expected a link like 'https://drive.google.com/file/d/<id>/view'."
+    )
+
+
+def _response_is_html(response: requests.Response) -> bool:
+    content_type = response.headers.get("Content-Type", "").lower()
+    content_disposition = response.headers.get("Content-Disposition", "").lower()
+    return "text/html" in content_type and "attachment" not in content_disposition
+
+
+def _follow_drive_confirmation(
+    session: requests.Session,
+    initial_response: requests.Response,
+    file_id: str,
+    timeout: int,
+) -> requests.Response:
+    if not _response_is_html(initial_response):
+        return initial_response
+
+    page_html = initial_response.text
+    soup = BeautifulSoup(page_html, "html.parser")
+    form = soup.find("form", {"id": "download-form"})
+    if form and form.get("action"):
+        action_url = str(form.get("action"))
+        form_params = {}
+        for field in form.find_all("input"):
+            name = field.get("name")
+            if name:
+                form_params[name] = field.get("value", "")
+        form_params.setdefault("id", file_id)
+        form_params.setdefault("export", "download")
+
+        initial_response.close()
+        confirmed = session.get(action_url, params=form_params, stream=True, timeout=timeout)
+        confirmed.raise_for_status()
+        return confirmed
+
+    for cookie_key, cookie_value in initial_response.cookies.items():
+        if cookie_key.startswith("download_warning"):
+            initial_response.close()
+            confirmed = session.get(
+                "https://drive.google.com/uc",
+                params={"export": "download", "id": file_id, "confirm": cookie_value},
+                stream=True,
+                timeout=timeout,
+            )
+            confirmed.raise_for_status()
+            return confirmed
+
+    return initial_response
+
+
+def _stream_to_file(response: requests.Response, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = output_path.with_suffix(output_path.suffix + ".part")
+
+    try:
+        with temp_path.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
+
+        # A valid WELFake CSV is much larger than this.
+        if temp_path.stat().st_size < 1024:
+            raise RuntimeError("Downloaded dataset looks incomplete (file is too small).")
+
+        temp_path.replace(output_path)
+    except Exception:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        raise
+
+
+def download_welfake_dataset(
+    destination_path: Optional[Path] = None,
+    source_url: Optional[str] = None,
+    timeout: int = 120,
+) -> Path:
+    target = Path(destination_path) if destination_path else DEFAULT_DATASET_PATH
+    drive_url = source_url or get_welfake_dataset_source_url()
+    file_id = _extract_google_drive_file_id(drive_url)
+
+    try:
+        with requests.Session() as session:
+            initial = session.get(
+                "https://drive.google.com/uc",
+                params={"export": "download", "id": file_id},
+                stream=True,
+                timeout=timeout,
+            )
+            initial.raise_for_status()
+
+            resolved = _follow_drive_confirmation(session, initial, file_id=file_id, timeout=timeout)
+            if _response_is_html(resolved):
+                raise RuntimeError(
+                    "Google Drive returned an HTML page instead of the dataset file. "
+                    "Ensure the file is shared as 'Anyone with the link: Viewer'."
+                )
+
+            _stream_to_file(resolved, target)
+            resolved.close()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to download WELFake dataset from Google Drive: {exc}") from exc
+
+    return target
+
+
+def ensure_welfake_dataset(dataset_path: Optional[Path] = None, force_download: bool = False) -> Path:
+    if dataset_path:
+        target = Path(dataset_path)
+        if target.exists() and not force_download:
+            return target
+        return download_welfake_dataset(destination_path=target)
+
+    if DEFAULT_DATASET_PATH.exists() and not force_download:
+        return DEFAULT_DATASET_PATH
+
+    if LEGACY_DATASET_PATH.exists() and not force_download:
+        return LEGACY_DATASET_PATH
+
+    return download_welfake_dataset(destination_path=DEFAULT_DATASET_PATH)
+
+
+def get_welfake_dataset_status() -> Dict[str, object]:
+    if DEFAULT_DATASET_PATH.exists():
+        current_path = DEFAULT_DATASET_PATH
+    elif LEGACY_DATASET_PATH.exists():
+        current_path = LEGACY_DATASET_PATH
+    else:
+        current_path = DEFAULT_DATASET_PATH
+
+    return {
+        "available_locally": current_path.exists(),
+        "local_path": str(current_path),
+        "cache_path": str(DEFAULT_DATASET_PATH),
+        "legacy_path": str(LEGACY_DATASET_PATH),
+        "source_url": get_welfake_dataset_source_url(),
+    }
 
 
 def load_welfake_data(dataset_path: Path) -> pd.DataFrame:
@@ -91,7 +262,13 @@ def train_welfake_model(
     max_rows: Optional[int] = None,
 ) -> Dict[str, object]:
     profile_name = _validate_profile(profile)
-    dataset = Path(dataset_path) if dataset_path else DEFAULT_DATASET_PATH
+    preexisting_paths = {
+        path
+        for path in (Path(dataset_path) if dataset_path else None, DEFAULT_DATASET_PATH, LEGACY_DATASET_PATH)
+        if path is not None and path.exists()
+    }
+    dataset = ensure_welfake_dataset(dataset_path=Path(dataset_path) if dataset_path else None)
+    dataset_downloaded = dataset not in preexisting_paths
     model_output = Path(model_path) if model_path else PROFILE_MODEL_PATHS[profile_name]
     vectorizer_output = Path(vectorizer_path) if vectorizer_path else PROFILE_VECTORIZER_PATHS[profile_name]
     metrics_output = Path(metrics_path) if metrics_path else PROFILE_METRICS_PATHS[profile_name]
@@ -152,6 +329,7 @@ def train_welfake_model(
         "label_mapping": {"0": "REAL", "1": "FAKE"},
         "profile": profile_name,
         "dataset_path": str(dataset),
+        "dataset_downloaded_for_run": dataset_downloaded,
         "raw_rows_available": raw_rows_available,
         "rows_used": int(len(X)),
         "train_rows": int(len(X_train)),
@@ -181,6 +359,8 @@ def train_welfake_model(
         "metrics_path": str(metrics_output),
         "active_metrics_path": str(ACTIVE_METRICS_PATH),
         "active_profile_path": str(ACTIVE_PROFILE_PATH),
+        "dataset_path": str(dataset),
+        "dataset_downloaded": dataset_downloaded,
         "metrics": metrics,
     }
 
