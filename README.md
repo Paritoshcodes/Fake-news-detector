@@ -10,6 +10,7 @@ A polished Streamlit app for fake news classification with a single-page tabbed 
 - WELFake training profiles:
    - `quick`: stratified subset for faster training
    - `full`: full dataset training
+- Automatic dataset download from Google Drive when training starts (no large CSV committed to GitHub)
 - Profile-specific saved artifacts with active profile switching
 - Model metrics dashboard (Accuracy, Precision, Recall, F1, ROC-AUC, confusion matrix)
 
@@ -27,8 +28,9 @@ A polished Streamlit app for fake news classification with a single-page tabbed 
 ```
 fake-news-streamlit-app/
 |-- app.py
-|-- WELFake_Dataset.csv
 |-- artifacts/
+|   |-- datasets/
+|   |   `-- WELFake_Dataset.csv   # downloaded at runtime on first training run
 |   |-- fake_news_model_quick.joblib
 |   |-- fake_news_model_full.joblib
 |   |-- tfidf_vectorizer_quick.joblib
@@ -75,6 +77,18 @@ streamlit run app.py
 
 Use the `Model Insights` tab and click `Train on WELFake` with either `quick` or `full` selected.
 
+If the dataset is not already cached locally, the app downloads it automatically from Google Drive:
+
+- `https://drive.google.com/file/d/13lcNYSvVfJhC5xl-84k5AcHvNVnKiI1T/view?usp=drive_link`
+
+The downloaded file is cached at:
+
+- `artifacts/datasets/WELFake_Dataset.csv`
+
+You can override the dataset URL in deployment environments using:
+
+- `WELFAKE_DATASET_URL`
+
 - Quick profile writes:
    - `artifacts/fake_news_model_quick.joblib`
    - `artifacts/tfidf_vectorizer_quick.joblib`
@@ -101,7 +115,8 @@ The WELFake label mapping used in training/inference is:
 ## Notes for GitHub Push
 
 - This repo is configured to ignore the `artifacts/` folder by default so trained model files are not uploaded unintentionally.
-- If `WELFake_Dataset.csv` is too large for normal Git pushes, use Git LFS or keep it local and download separately.
+- `WELFake_Dataset.csv` does not need to be committed. It is downloaded at runtime from Google Drive during training.
+- Ensure the Google Drive file is shared as **Anyone with the link (Viewer)** for Streamlit Cloud deployments.
 
 ## License
 

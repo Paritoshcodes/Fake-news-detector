@@ -8,7 +8,12 @@ import numpy as np
 from sklearn.metrics import accuracy_score, auc, confusion_matrix, f1_score, precision_score, recall_score, roc_curve
 
 from src.models.predict import get_active_profile, get_prediction_backend, model_artifacts_available, refresh_artifact_cache
-from src.models.train import ACTIVE_METRICS_PATH, DEFAULT_DATASET_PATH, PROFILE_METRICS_PATHS, train_welfake_model
+from src.models.train import (
+    ACTIVE_METRICS_PATH,
+    PROFILE_METRICS_PATHS,
+    get_welfake_dataset_status,
+    train_welfake_model,
+)
 from src.ui.components import render_glass_card, render_hero, render_top_nav
 from src.ui.theme import apply_page_config, inject_global_css, render_background_accents
 
@@ -68,14 +73,15 @@ def display_model_insights():
         eyebrow="Feature 3",
     )
 
-    dataset_exists = DEFAULT_DATASET_PATH.exists()
+    dataset_status = get_welfake_dataset_status()
+    dataset_cached = bool(dataset_status["available_locally"])
     quick_ready = model_artifacts_available("quick")
     full_ready = model_artifacts_available("full")
     active_profile = get_active_profile() or "none"
     st.caption(f"Active backend: {get_prediction_backend()}")
 
     info_col_1, info_col_2, info_col_3, info_col_4 = st.columns(4)
-    info_col_1.metric("Dataset", "Available" if dataset_exists else "Missing")
+    info_col_1.metric("Dataset", "Cached" if dataset_cached else "Remote")
     info_col_2.metric("Quick Artifact", "Ready" if quick_ready else "Missing")
     info_col_3.metric("Full Artifact", "Ready" if full_ready else "Missing")
     info_col_4.metric("Active Profile", active_profile.title())
@@ -100,21 +106,31 @@ def display_model_insights():
     with train_col:
         train_clicked = st.button("Train on WELFake", type="primary", use_container_width=True)
     with path_col:
-        st.code(str(DEFAULT_DATASET_PATH), language="text")
+        st.code(str(dataset_status["local_path"]), language="text")
+        st.caption(
+            "If not cached yet, this file is downloaded automatically from Google Drive during training."
+        )
 
     if train_clicked:
-        if not dataset_exists:
-            st.error("WELFake_Dataset.csv is missing from the workspace root.")
-        else:
-            with st.spinner("Training model and vectorizer on WELFake dataset..."):
+        with st.spinner("Preparing WELFake dataset (download if needed) and training model..."):
+            try:
                 result = train_welfake_model(profile=selected_profile)
+            except Exception as exc:
+                st.error(f"Training failed: {exc}")
+            else:
                 st.session_state["trained_metrics"] = result["metrics"]
                 st.session_state["trained_profile"] = result["profile"]
                 refresh_artifact_cache()
-            st.success(
-                "Training completed. "
-                f"Saved profile-specific artifacts for '{result['profile']}' and set it active."
-            )
+                if result.get("dataset_downloaded"):
+                    st.success(
+                        "Dataset downloaded from Google Drive and training completed. "
+                        f"Saved profile-specific artifacts for '{result['profile']}' and set it active."
+                    )
+                else:
+                    st.success(
+                        "Training completed. "
+                        f"Saved profile-specific artifacts for '{result['profile']}' and set it active."
+                    )
 
     if st.session_state.get("trained_metrics"):
         trained_rows = st.session_state["trained_metrics"].get("rows_used")
